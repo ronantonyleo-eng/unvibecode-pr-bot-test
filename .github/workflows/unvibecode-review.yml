@@ -1,0 +1,83 @@
+name: UnvibeCode PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  unvibecode-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed to compare changes if required later
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # UnvibeCode requires 3.11+ [citation:11]
+
+      - name: Install UnvibeCode
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install unvibecode
+
+      - name: Run UnvibeCode Review
+        id: review
+        run: |
+          # Run UnvibeCode on the repository
+          # The output is saved to shipready_results or similar
+          python -m unvibecode review --repository "${{ github.workspace }}"
+          
+          # Capture the output for the PR comment
+          # Note: This part depends on UnvibeCode's actual output format.
+          # If it generates an HTML file, we might need to parse it or link to it.
+          # For this prototype, we'll create a placeholder summary.
+          echo "## UnvibeCode Analysis Complete" > unvibe_summary.md
+          echo "The UnvibeCode review has finished. Check the artifacts or logs for details." >> unvibe_summary.md
+          echo "" >> unvibe_summary.md
+          echo "*(Note: This is a prototype comment. In a production version, this would contain the actual call-graph summary and broken edge warnings.)*" >> unvibe_summary.md
+
+      - name: Post or Update PR Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('unvibe_summary.md', 'utf8');
+            
+            // This unique marker allows us to find and update the comment later
+            const marker = '<!-- unvibecode-comment -->';
+            const body = `${marker}\n${summary}`;
+
+            // Get all comments on the PR
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            // Find our previous comment by the marker
+            const botComment = comments.find(comment => comment.body.includes(marker));
+
+            if (botComment) {
+              // Update the existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              // Create a new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
